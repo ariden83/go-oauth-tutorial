@@ -1,7 +1,10 @@
-package server
+package main
 
 import (
+	"fmt"
+	"gopkg.in/oauth2.v3/models"
 	"log"
+	"github.com/google/uuid"
 	"net/http"
 	"net/url"
 	"os"
@@ -9,26 +12,26 @@ import (
 	"github.com/go-session/session"
 	"gopkg.in/oauth2.v3/errors"
 	"gopkg.in/oauth2.v3/manage"
-	"gopkg.in/oauth2.v3/models"
 	"gopkg.in/oauth2.v3/server"
 	"gopkg.in/oauth2.v3/store"
 )
 
 func main() {
 	manager := manage.NewDefaultManager()
+
+	manager.SetAuthorizeCodeTokenCfg(manage.DefaultAuthorizeCodeTokenCfg)
 	// token store
 	manager.MustTokenStorage(store.NewMemoryTokenStore())
 
 	clientStore := store.NewClientStore()
-	clientStore.Set("222222", &models.Client{
-		ID:     "222222",
-		Secret: "22222222",
-		Domain: "http://localhost:9094",
-	})
 	manager.MapClientStorage(clientStore)
 
 	srv := server.NewServer(server.NewConfig(), manager)
+	srv.SetAllowGetAccessRequest(true)
+	srv.SetClientInfoHandler(server.ClientFormHandler)
 	srv.SetUserAuthorizationHandler(userAuthorizeHandler)
+
+	manager.SetRefreshTokenCfg(manage.DefaultRefreshTokenCfg)
 
 	srv.SetInternalErrorHandler(func(err error) (re *errors.Response) {
 		log.Println("Internal Error:", err.Error())
@@ -40,14 +43,43 @@ func main() {
 	})
 
 	http.HandleFunc("/login", loginHandler)
-	http.HandleFunc("/auth", authHandler)
 
-	http.HandleFunc("/authorize", func(w http.ResponseWriter, r *http.Request) {
-		err := srv.HandleAuthorizeRequest(w, r)
+	http.HandleFunc("/credentials", func(w http.ResponseWriter, r *http.Request) {
+		r.ParseForm()
+		username := r.Form.Get("username")
+		// your login
+		clientId := uuid.New().String()[:8]
+		// your password
+		clientSecret := uuid.New().String()[:8]
+
+		err := clientStore.Set(clientId, &models.Client{
+			ID:     clientId,
+			Secret: clientSecret,
+			Domain: "http://localhost:9094",
+		})
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			fmt.Println(err.Error())
 		}
+
+		fmt.Println(fmt.Sprintf("%+v", map[string]string{
+			"CLIENT_ID": clientId,
+			"CLIENT_SECRET": clientSecret,
+			"Name": username,
+		}))
+
+		/*
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"CLIENT_ID": clientId,
+			"CLIENT_SECRET": clientSecret,
+			"Name": username,
+		})*/
+
+		w.Header().Set("Location", "/token?grant_type=client_credentials&client_id="+clientId+"&client_secret="+clientSecret+"&scope=all")
+		w.WriteHeader(http.StatusFound)
 	})
+
+	http.HandleFunc("/auth", authHandler)
 
 	http.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
 		err := srv.HandleTokenRequest(w, r)
@@ -55,6 +87,10 @@ func main() {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	})
+
+	http.HandleFunc("/protected", validateToken(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("Hello, I'm protected"))
+	}, srv))
 
 	log.Println("Server is running at 9096 port.")
 	log.Fatal(http.ListenAndServe(":9096", nil))
@@ -85,20 +121,6 @@ func userAuthorizeHandler(w http.ResponseWriter, r *http.Request) (userID string
 }
 
 func loginHandler(w http.ResponseWriter, r *http.Request) {
-	store, err := session.Start(nil, w, r)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	if r.Method == "POST" {
-		store.Set("LoggedInUserID", "000000")
-		store.Save()
-
-		w.Header().Set("Location", "/auth")
-		w.WriteHeader(http.StatusFound)
-		return
-	}
 	outputHTML(w, r, "static/login.html")
 }
 
@@ -146,4 +168,16 @@ func outputHTML(w http.ResponseWriter, req *http.Request, filename string) {
 	defer file.Close()
 	fi, _ := file.Stat()
 	http.ServeContent(w, req, file.Name(), fi.ModTime(), file)
+}
+
+func validateToken(f http.HandlerFunc, srv *server.Server) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, err := srv.ValidationBearerToken(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		f.ServeHTTP(w, r)
+	})
 }
