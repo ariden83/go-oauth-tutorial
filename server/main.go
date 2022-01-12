@@ -2,19 +2,19 @@ package main
 
 import (
 	"fmt"
+	"github.com/go-session/session"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/rs/cors"
+	"gopkg.in/oauth2.v3/errors"
+	"gopkg.in/oauth2.v3/manage"
 	"gopkg.in/oauth2.v3/models"
+	"gopkg.in/oauth2.v3/server"
+	"gopkg.in/oauth2.v3/store"
 	"log"
 	"net/http"
 	"os"
-
-	"github.com/go-session/session"
-	"gopkg.in/oauth2.v3/errors"
-	"gopkg.in/oauth2.v3/manage"
-	"gopkg.in/oauth2.v3/server"
-	"gopkg.in/oauth2.v3/store"
+	"time"
 )
 
 var (
@@ -29,8 +29,12 @@ const (
 func main() {
 	manager := manage.NewDefaultManager()
 
+	manager.SetAuthorizeCodeExp(time.Minute * 10)
+	manager.SetPasswordTokenCfg(manage.DefaultPasswordTokenCfg)
 	manager.SetAuthorizeCodeTokenCfg(manage.DefaultAuthorizeCodeTokenCfg)
-	// token store
+	manager.SetRefreshTokenCfg(manage.DefaultRefreshTokenCfg)
+	manager.SetClientTokenCfg(manage.DefaultClientTokenCfg)
+
 	manager.MustTokenStorage(store.NewMemoryTokenStore())
 
 	clientStore := store.NewClientStore()
@@ -39,6 +43,7 @@ func main() {
 		Secret: clientSecret,
 		Domain: "http://localhostt:9096",
 	})
+
 	manager.MapClientStorage(clientStore)
 
 	srv := server.NewServer(server.NewConfig(), manager)
@@ -50,22 +55,16 @@ func main() {
 		fmt.Println("************************************** SetUserAuthorizationHandler")
 		return "12", nil
 	}) */
-
-	manager.SetRefreshTokenCfg(manage.DefaultRefreshTokenCfg)
-
 	srv.SetInternalErrorHandler(func(err error) (re *errors.Response) {
 		log.Println("Internal Error:", err.Error())
 		return
 	})
-
 	srv.SetResponseErrorHandler(func(re *errors.Response) {
 		log.Println("Response Error:", re.Error.Error())
 	})
 
 	r := mux.NewRouter()
-
 	r.HandleFunc("/login", loginHandler)
-
 	r.HandleFunc("/credentials", func(w http.ResponseWriter, r *http.Request) {
 		r.ParseForm()
 
@@ -102,8 +101,6 @@ func main() {
 		w.Header().Set("Location", "/token?grant_type=client_credentials&client_id="+clientID+"&client_secret="+clientSecret+"&scope=all")
 		w.WriteHeader(http.StatusFound)
 	})
-
-	// http.HandleFunc("/auth", authHandler)
 
 	r.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
 		err := srv.HandleTokenRequest(w, r)
@@ -154,14 +151,10 @@ func outputHTML(w http.ResponseWriter, req *http.Request, filename string) {
 
 func validateToken(f http.HandlerFunc, srv *server.Server) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		data, err := srv.ValidationBearerToken(r)
-		if err != nil {
+		if _, err := srv.ValidationBearerToken(r); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-
-		fmt.Println(fmt.Sprintf("userID :: %+v", data.GetUserID()))
-
 		f.ServeHTTP(w, r)
 	})
 }
