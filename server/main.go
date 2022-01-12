@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"github.com/go-oauth2/oauth2/v4"
 	"github.com/go-oauth2/oauth2/v4/errors"
 	"github.com/go-oauth2/oauth2/v4/generates"
 	"github.com/go-oauth2/oauth2/v4/manage"
@@ -15,8 +17,8 @@ import (
 	"github.com/rs/cors"
 	"log"
 	"net/http"
-	"os"
 	"time"
+	"html/template"
 )
 
 var (
@@ -27,7 +29,8 @@ var (
 const (
 	sessionLabelUserID string = "LoggedInUserID"
 )
-
+// https://github.com/go-oauth2/oauth2/blob/b208c14e621016995debae2fa7dc20c8f0e4f6f8/example/server/server.go
+// https://github.com/go-oauth2/oauth2/blob/fa969a085ba42725f9b957c744ec5ba6d548b4ab/manage/manage_test.go
 func main() {
 	manager := manage.NewDefaultManager()
 
@@ -36,6 +39,7 @@ func main() {
 	manager.SetAuthorizeCodeTokenCfg(manage.DefaultAuthorizeCodeTokenCfg)
 	manager.SetRefreshTokenCfg(manage.DefaultRefreshTokenCfg)
 	manager.SetClientTokenCfg(manage.DefaultClientTokenCfg)
+	manager.SetImplicitTokenCfg(&manage.Config{AccessTokenExp: time.Hour * 2, RefreshTokenExp: time.Hour * 24 * 7, IsGenerateRefresh: true})
 
 	manager.MustTokenStorage(store.NewMemoryTokenStore())
 	// generate jwt access token
@@ -54,8 +58,18 @@ func main() {
 	srv := server.NewServer(server.NewConfig(), manager)
 	srv.SetAllowGetAccessRequest(true)
 	srv.SetClientInfoHandler(server.ClientFormHandler)
+
 	srv.SetAccessTokenExpHandler(func(w http.ResponseWriter, r *http.Request) (exp time.Duration, err error) {
 		return time.Duration(60 * time.Second), nil
+	})
+
+	// if you want to set a specific delay for token expiration
+	/*srv.SetAccessTokenExpHandler(func(w http.ResponseWriter, r *http.Request) (exp time.Duration, err error) {
+		return time.Duration(60 * time.Second), nil
+	})*/
+
+	srv.SetRefreshingValidationHandler(func(ti oauth2.TokenInfo) (allowed bool, err error) {
+		return true, nil
 	})
 
 	srv.SetUserAuthorizationHandler(func(w http.ResponseWriter, r *http.Request) (userID string, err error) {
@@ -66,13 +80,6 @@ func main() {
 
 		uid, ok := store.Get(sessionLabelUserID)
 		if !ok {
-			if r.Form == nil {
-				r.ParseForm()
-			}
-
-			store.Set("ReturnUri", r.Form)
-			store.Save()
-
 			w.Header().Set("Location", "/login")
 			w.WriteHeader(http.StatusFound)
 			return
@@ -84,6 +91,7 @@ func main() {
 		return
 	})
 
+/*
 	srv.SetPasswordAuthorizationHandler(func(username, password string) (userID string, err error) {
 		fmt.Println("************************************** SetPasswordAuthorizationHandler")
 		if username == "test" && password == "test" {
@@ -91,6 +99,8 @@ func main() {
 		}
 		return
 	})
+*/
+
 	srv.SetInternalErrorHandler(func(err error) (re *errors.Response) {
 		log.Println("Internal Error:", err.Error())
 		return
@@ -136,11 +146,18 @@ func main() {
 			}
 		*/
 
-		/* call token or authorize endpoint/
-
+		/* call token or authorize endpoint/ */
+		/*
 		w.Header().Set("Location", "/token?grant_type=client_credentials"+
 			"&client_id="+clientID+
 			"&client_secret="+clientSecret+
+			"&scope=all")
+		*/
+
+		/*w.Header().Set("Location", "/token?grant_type=refresh_token"+
+			"&client_id="+clientID+
+			"&client_secret="+clientSecret+
+			"&refresh_token="+
 			"&scope=all")*/
 
 		w.Header().Set("Location", "/authorize?grant_type=client_credentials"+
@@ -149,6 +166,7 @@ func main() {
 			"&scope=all"+
 			"&redirect_uri=http://127.0.0.1:9096/test"+
 			"&response_type=token")
+
 		w.WriteHeader(http.StatusFound)
 	})
 
@@ -212,13 +230,8 @@ func main() {
 		}
 
 		data := srv.GetAuthorizeData(req.ResponseType, ti)
-		/*
-			w.Header().Set("Content-Type", "application/json;charset=UTF-8")
-			w.Header().Set("Cache-Control", "no-store")
-			w.Header().Set("Pragma", "no-cache")
-			status := http.StatusOK
-			w.WriteHeader(status)
-			json.NewEncoder(w).Encode(data)*/
+
+		/*  outputJSON(data) */
 
 		w.Header().Set("Location", "/protected?access_token="+data["access_token"].(string))
 		w.WriteHeader(http.StatusFound)
@@ -233,7 +246,23 @@ func main() {
 
 	r.HandleFunc("/protected", validateToken(func(w http.ResponseWriter, r *http.Request) {
 		token, _ := srv.ValidationBearerToken(r)
-		w.Write([]byte("Hello, I'm protected and my ID is : " + token.GetUserID()))
+
+		w.Header().Set("expires", fmt.Sprintf("%d", int64(token.GetAccessCreateAt().Add(token.GetAccessExpiresIn()).Sub(time.Now()).Seconds())))
+		w.Header().Set("access_token", token.GetAccess())
+		w.Header().Set("refresh_token", token.GetRefresh())
+		w.Header().Set("refresh_expires", fmt.Sprintf("%d", int64(token.GetRefreshCreateAt().Add(token.GetRefreshExpiresIn()).Sub(time.Now()).Seconds())))
+		w.Header().Set("token_type", "Bearer")
+		w.Header().Set("scope", token.GetScope())
+
+		linkRefreshToken := "/token?grant_type=refresh_token&client_id="+clientID+"&client_secret="+clientSecret+"&refresh_token="+token.GetRefresh()+"&scope=all"
+
+		outputHTML(w,"protected", struct {
+			User string
+			Link string
+		}{
+			User: token.GetUserID(),
+			Link: linkRefreshToken,
+		})
 	}, srv))
 
 	log.Println("Server is running at 9096 port.")
@@ -247,18 +276,23 @@ func main() {
 }
 
 func loginHandler(w http.ResponseWriter, r *http.Request) {
-	outputHTML(w, r, "static/login.html")
+	outputHTML(w,"login", struct {}{})
 }
 
-func outputHTML(w http.ResponseWriter, req *http.Request, filename string) {
-	file, err := os.Open(filename)
+func outputJSON(w http.ResponseWriter, data interface{}) {
+	w.Header().Set("Content-Type", "application/json;charset=UTF-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(data)
+}
+
+func outputHTML(w http.ResponseWriter, filename string, data interface{}) {
+	t := template.Must(template.ParseFiles("static/"+filename+".tmpl"))
+	err := t.Execute(w, data)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
+		panic(err)
 	}
-	defer file.Close()
-	fi, _ := file.Stat()
-	http.ServeContent(w, req, file.Name(), fi.ModTime(), file)
 }
 
 func validateToken(f http.HandlerFunc, srv *server.Server) http.HandlerFunc {
