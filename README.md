@@ -3,6 +3,7 @@
 ## Resources
 
 * oauth2 tutorial by medium [tutorial](https://medium.com/@cyantarek/build-your-own-oauth2-server-in-go-7d0f660732c3)
+* Authentication in Golang with JWTs [tutorial](https://auth0.com/blog/authentication-in-golang/)
 * oauth2 tutorial [tutorial](https://tutorialedge.net/golang/go-oauth2-tutorial/)
 | [code source](https://github.com/go-oauth2/oauth2/tree/master/example) 
 | [code source](https://github.com/TutorialEdge/go-oauth-tutorial)
@@ -11,6 +12,28 @@
 ## Command
 
 - `make server` - launch the app
+
+## Protocol Flow
+
+```text
+     +--------+                               +---------------+
+     |        |--(A)- Authorization Request ->|   Resource    |
+     |        |                               |     Owner     |
+     |        |<-(B)-- Authorization Grant ---|               |
+     |        |                               +---------------+
+     |        |
+     |        |                               +---------------+
+     |        |--(C)-- Authorization Grant -->| Authorization |
+     | Client |                               |     Server    |
+     |        |<-(D)----- Access Token -------|               |
+     |        |                               +---------------+
+     |        |
+     |        |                               +---------------+
+     |        |--(E)----- Access Token ------>|    Resource   |
+     |        |                               |     Server    |
+     |        |<-(F)--- Protected Resource ---|               |
+     +--------+                               +---------------+
+```
 
 ## Test
 
