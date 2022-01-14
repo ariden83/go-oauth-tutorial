@@ -59,9 +59,11 @@ func main() {
 	srv.SetAllowGetAccessRequest(true)
 	srv.SetClientInfoHandler(server.ClientFormHandler)
 
+	/* if you want to force delay before token expire
 	srv.SetAccessTokenExpHandler(func(w http.ResponseWriter, r *http.Request) (exp time.Duration, err error) {
 		return time.Duration(60 * time.Second), nil
 	})
+	*/
 
 	// if you want to set a specific delay for token expiration
 	/*srv.SetAccessTokenExpHandler(func(w http.ResponseWriter, r *http.Request) (exp time.Duration, err error) {
