@@ -65,11 +65,6 @@ func main() {
 	})
 	*/
 
-	// if you want to set a specific delay for token expiration
-	/*srv.SetAccessTokenExpHandler(func(w http.ResponseWriter, r *http.Request) (exp time.Duration, err error) {
-		return time.Duration(60 * time.Second), nil
-	})*/
-
 	srv.SetRefreshingValidationHandler(func(ti oauth2.TokenInfo) (allowed bool, err error) {
 		return true, nil
 	})
