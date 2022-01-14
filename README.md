@@ -34,6 +34,12 @@
      |        |                               |     Server    |
      |        |<-(F)--- Protected Resource ---|               |
      +--------+                               +---------------+
+     |        |
+     |        |                               +---------------+
+     |        |--(E)---- Refresh Token ------>| Authorization |
+     |        |                               |     Server    |
+     |        |<-(F)---  Access Resource   ---|               |
+     +--------+                               +---------------+
 ```
 
 ## Test
