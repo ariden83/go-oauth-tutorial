@@ -15,10 +15,10 @@ import (
 	guuid "github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/rs/cors"
+	"html/template"
 	"log"
 	"net/http"
 	"time"
-	"html/template"
 )
 
 var (
@@ -50,7 +50,7 @@ func main() {
 	clientStore.Set(clientID, &models.Client{
 		ID:     clientID,
 		Secret: clientSecret,
-		Domain: "http://127.0.0.1:9096",
+		// Domain: "http://127.0.0.1:9096",
 	})
 
 	manager.MapClientStorage(clientStore)
@@ -161,7 +161,6 @@ func main() {
 			"&client_id="+clientID+
 			"&client_secret="+clientSecret+
 			"&scope=all"+
-			"&redirect_uri=http://127.0.0.1:9096/test"+
 			"&response_type=token")
 
 		w.WriteHeader(http.StatusFound)
