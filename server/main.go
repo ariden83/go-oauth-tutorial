@@ -18,6 +18,7 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -28,6 +29,8 @@ var (
 
 const (
 	sessionLabelUserID string = "LoggedInUserID"
+	sessionLabelAccessToken string = "LoggedAccessToken"
+	sessionLabelRefreshToken string = "LoggedRefreshToken"
 )
 // https://github.com/go-oauth2/oauth2/blob/b208c14e621016995debae2fa7dc20c8f0e4f6f8/example/server/server.go
 // https://github.com/go-oauth2/oauth2/blob/fa969a085ba42725f9b957c744ec5ba6d548b4ab/manage/manage_test.go
@@ -228,20 +231,78 @@ func main() {
 		data := srv.GetAuthorizeData(req.ResponseType, ti)
 
 		/*  outputJSON(data) */
+		store, err := session.Start(r.Context(), w, r)
+		if err != nil {
+			return
+		}
+		store.Set(sessionLabelAccessToken, data["access_token"].(string))
+		store.Set(sessionLabelRefreshToken, data["refresh_token"].(string))
+		store.Save()
 
-		w.Header().Set("Location", "/protected?access_token="+data["access_token"].(string))
+		w.Header().Set("Location", "/protected")
 		w.WriteHeader(http.StatusFound)
 	})
 
 	r.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
-		err := srv.HandleTokenRequest(w, r)
+		store, err := session.Start(r.Context(), w, r)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
+		refreshToken, ok := store.Get(sessionLabelRefreshToken)
+		if !ok {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		parm := r.Form
+		if parm == nil {
+			parm = url.Values{}
+		}
+
+		parm.Add("refresh_token", refreshToken.(string))
+		parm.Add("grant_type", oauth2.Refreshing.String())
+		parm.Add("client_id", clientID)
+		parm.Add("client_secret", clientSecret)
+		parm.Add("scope", "all")
+
+		r.Form = parm
+
+		ctx := r.Context()
+
+		gt, tgr, err := srv.ValidationTokenRequest(r)
+		if err != nil {
+			_, statusCode, _ := srv.GetErrorData(err)
+			http.Error(w, "fail to valid token request", statusCode)
+			return
+		}
+
+		ti, err := srv.GetAccessToken(ctx, gt, tgr)
+		if err != nil {
+			_, statusCode, _ := srv.GetErrorData(err)
+			http.Error(w, "fail to valid token request", statusCode)
+			return
+		}
+
+		data := srv.GetTokenData(ti)
+		store.Set(sessionLabelAccessToken, data["access_token"].(string))
+		store.Set(sessionLabelRefreshToken, data["refresh_token"].(string))
+		store.Save()
+
+		w.Header().Set("Location", "/protected")
+		w.WriteHeader(http.StatusFound)
 	})
 
 	r.HandleFunc("/protected", validateToken(func(w http.ResponseWriter, r *http.Request) {
-		token, _ := srv.ValidationBearerToken(r)
+		store, err := session.Start(r.Context(), w, r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		accessToken, _ := store.Get(sessionLabelAccessToken)
+		token, err := srv.Manager.LoadAccessToken(r.Context(), accessToken.(string))
+		if err != nil {
+			return
+		}
 
 		w.Header().Set("expires", fmt.Sprintf("%d", int64(token.GetAccessCreateAt().Add(token.GetAccessExpiresIn()).Sub(time.Now()).Seconds())))
 		w.Header().Set("access_token", token.GetAccess())
@@ -250,7 +311,7 @@ func main() {
 		w.Header().Set("token_type", "Bearer")
 		w.Header().Set("scope", token.GetScope())
 
-		linkRefreshToken := "/token?grant_type=refresh_token&client_id="+clientID+"&client_secret="+clientSecret+"&refresh_token="+token.GetRefresh()+"&scope=all"
+		linkRefreshToken := "/token"
 
 		outputHTML(w,"protected", struct {
 			User string
@@ -293,8 +354,16 @@ func outputHTML(w http.ResponseWriter, filename string, data interface{}) {
 
 func validateToken(f http.HandlerFunc, srv *server.Server) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, err := srv.ValidationBearerToken(r)
+		store, err := session.Start(r.Context(), w, r)
 		if err != nil {
+			return
+		}
+		accessToken, ok := store.Get(sessionLabelAccessToken)
+		if !ok {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if _, err := srv.Manager.LoadAccessToken(r.Context(), accessToken.(string)); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
