@@ -310,6 +310,8 @@ func main() {
 		w.Header().Set("refresh_expires", fmt.Sprintf("%d", int64(token.GetRefreshCreateAt().Add(token.GetRefreshExpiresIn()).Sub(time.Now()).Seconds())))
 		w.Header().Set("token_type", "Bearer")
 		w.Header().Set("scope", token.GetScope())
+		w.Header().Set("cache-control", "no-cache,no-store")
+		w.Header().Set("Pragma", "no-cache")
 
 		linkRefreshToken := "/token"
 
@@ -338,7 +340,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 
 func outputJSON(w http.ResponseWriter, data interface{}) {
 	w.Header().Set("Content-Type", "application/json;charset=UTF-8")
-	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("cache-control", "no-cache,no-store")
 	w.Header().Set("Pragma", "no-cache")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(data)
@@ -360,7 +362,7 @@ func validateToken(f http.HandlerFunc, srv *server.Server) http.HandlerFunc {
 		}
 		accessToken, ok := store.Get(sessionLabelAccessToken)
 		if !ok {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			http.Error(w, "fail to get access token", http.StatusBadRequest)
 			return
 		}
 		if _, err := srv.Manager.LoadAccessToken(r.Context(), accessToken.(string)); err != nil {
