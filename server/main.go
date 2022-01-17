@@ -303,12 +303,14 @@ func main() {
 			return
 		}
 
+		/* juste pour info, mais inutile de les retourner
 		w.Header().Set("expires", fmt.Sprintf("%d", int64(token.GetAccessCreateAt().Add(token.GetAccessExpiresIn()).Sub(time.Now()).Seconds())))
 		w.Header().Set("access_token", token.GetAccess())
 		w.Header().Set("refresh_token", token.GetRefresh())
 		w.Header().Set("refresh_expires", fmt.Sprintf("%d", int64(token.GetRefreshCreateAt().Add(token.GetRefreshExpiresIn()).Sub(time.Now()).Seconds())))
 		w.Header().Set("token_type", "Bearer")
 		w.Header().Set("scope", token.GetScope())
+		 */
 		w.Header().Set("cache-control", "no-cache,no-store")
 		w.Header().Set("Pragma", "no-cache")
 
