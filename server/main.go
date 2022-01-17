@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"github.com/go-oauth2/oauth2/v4"
 	"github.com/go-oauth2/oauth2/v4/errors"
@@ -335,13 +334,14 @@ func main() {
 	log.Fatal(http.ListenAndServe(":9096", corsWrapper.Handler(r)))
 }
 
+/* inutile avec ce code
 func outputJSON(w http.ResponseWriter, data interface{}) {
 	w.Header().Set("Content-Type", "application/json;charset=UTF-8")
 	w.Header().Set("cache-control", "no-cache,no-store")
 	w.Header().Set("Pragma", "no-cache")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(data)
-}
+}*/
 
 func outputHTML(w http.ResponseWriter, filename string, data interface{}) {
 	t := template.Must(template.ParseFiles("static/" + filename + ".tmpl"))
